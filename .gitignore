@@ -1,0 +1,5 @@
+/tum
+/tum.exe
+dist/
+*.log
+tum.toml

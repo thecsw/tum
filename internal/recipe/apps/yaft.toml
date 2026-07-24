@@ -1,0 +1,31 @@
+# tum recipe for yaft (from rM2-stuff).
+# This is the exact build+deploy we validated: a Docker cross-armhf build,
+# then install as a suffixed sibling appload entry with the refresh-fix baked
+# into the shim env (so clears actually clear, unlike the upstream manifest).
+
+name = "yaft"
+display_name = "YAFT"
+source_dir = "/Users/thecsw/gits/rM2-stuff"
+
+# Cross-compile via the Docker image we already built. {{.SourceDir}} is
+# substituted to the source tree above.
+build_cmd = 'docker run --rm -v "{{.SourceDir}}:/src:cached" -w /src rm2stuff-cross-armhf bash -c "cmake --preset cross-armhf && cmake --build build/cross-armhf --target yaft"'
+
+binary = "build/cross-armhf/apps/yaft/yaft" # relative to source_dir
+binary_name = "yaft"                         # becomes yaft-<suffix> on device
+# icon left empty: the rM2-stuff draft/yaft.png is a text descriptor, not a
+# PNG. tum instead reuses the upstream (vellum) yaft icon on-device, see
+# appload.Install's fallback copy.
+icon = ""
+
+[manifest]
+aspect_ratio = "original"
+qtfb = true
+
+[manifest.environment]
+LD_PRELOAD = "/home/root/shims/qtfb-shim.so"
+QTFB_SHIM_MODEL = "RM1"
+QTFB_SHIM_RESPECT_APP_REFRESH_MODES = "true"
+QTFB_SHIM_RESPECT_FULL_REFRESH_REQUESTS = "true"
+QTFB_SHIM_INPUT_PATH_NULL = "/dev/input/touchscreen0"
+QTFB_SHIM_INITIAL_DISPLAY_MODE = "ANIMATE"

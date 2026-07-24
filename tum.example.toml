@@ -1,0 +1,7 @@
+# tum configuration. Copy to ./tum.toml or ~/.tum.toml.
+# All values can be overridden by global flags (--device, --suffix).
+
+device         = "root@10.11.99.1"
+default_suffix = "sandy"
+appload_root   = "/home/root/xovi/exthome/appload"
+vellum         = "/home/root/.vellum/bin/vellum"
