@@ -18,7 +18,7 @@ var buildCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		bin, err := build.Run(r)
+		bin, err := build.Run(r, tumRoot())
 		if err != nil {
 			return err
 		}

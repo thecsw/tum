@@ -9,8 +9,8 @@ import "encoding/json"
 // Spec is the recipe-side declaration of how an app is launched.
 type Spec struct {
 	AspectRatio string            `toml:"aspect_ratio"`
-	Qtfb         bool              `toml:"qtfb"`
-	Environment  map[string]string `toml:"environment"`
+	Qtfb        bool              `toml:"qtfb"`
+	Environment map[string]string `toml:"environment"`
 }
 
 // Manifest is the on-disk external.manifest.json shape appload expects.

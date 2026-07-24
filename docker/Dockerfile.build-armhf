@@ -1,0 +1,26 @@
+# tum build environments.
+#
+# build-armhf: cross-compiles rM2-stuff apps for the reMarkable 2 (armv7-a HF).
+#   Produces a dynamically-linked armhf ELF that needs only libudev.so.1 +
+#   libstdc++ + libc at runtime (all present on Codex Linux). libevdev is
+#   linked statically. git-lfs is included because rM2-stuff stores its Noto
+#   font as an LFS object (without it the build embeds a 131-byte pointer and
+#   stbtt_InitFont segfaults at runtime).
+#
+# emulate: host (amd64/arm64) environment for running rM2-stuff apps in an SDL
+#   window with an emulated rM screen + input, so you can test rotation,
+#   refresh and the keyboard without deploying to the device each iteration.
+
+FROM debian:bookworm-slim
+
+RUN dpkg --add-architecture armhf && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        cmake ninja-build pkg-config xxd git git-lfs ca-certificates \
+        gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+        libevdev-dev:armhf libudev-dev:armhf libsystemd-dev:armhf && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git lfs install --skip-repo
+
+WORKDIR /src

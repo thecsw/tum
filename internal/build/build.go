@@ -11,20 +11,26 @@ import (
 )
 
 // Run builds the app and returns the path to the resulting host binary.
-func Run(r *recipe.Recipe) (string, error) {
-	cmd, err := r.RenderBuildCmd()
+// tumRoot is the tum repo root (used for Docker volume mounts and for resolving
+// relative source_dir paths in recipes).
+func Run(r *recipe.Recipe, tumRoot string) (string, error) {
+	srcDir := r.SourceDir
+	if !filepath.IsAbs(srcDir) {
+		srcDir = filepath.Join(tumRoot, srcDir)
+	}
+	cmd, err := r.RenderBuildCmd(tumRoot)
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprintf(os.Stderr, "tum: building %s in %s...\n", r.Name, r.SourceDir)
+	fmt.Fprintf(os.Stderr, "tum: building %s in %s...\n", r.Name, srcDir)
 	c := exec.Command("sh", "-c", cmd)
-	c.Dir = r.SourceDir
+	c.Dir = srcDir
 	c.Stdout = os.Stderr
 	c.Stderr = os.Stderr
 	if err := c.Run(); err != nil {
 		return "", fmt.Errorf("build %s: %w", r.Name, err)
 	}
-	bin := filepath.Join(r.SourceDir, r.Binary)
+	bin := filepath.Join(srcDir, r.Binary)
 	if _, err := os.Stat(bin); err != nil {
 		return "", fmt.Errorf("build %s: output not found at %s: %w", r.Name, bin, err)
 	}

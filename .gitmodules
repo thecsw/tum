@@ -1,0 +1,3 @@
+[submodule "apps/rM2-stuff"]
+	path = apps/rM2-stuff
+	url = https://github.com/thecsw/rM2-stuff.git

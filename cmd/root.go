@@ -114,3 +114,23 @@ func findConfig() (string, bool) {
 func dev() device.Client {
 	return device.Client{Host: cfg.Device, DryRun: flagDryRun, Verbose: flagVerbose}
 }
+
+// tumRoot returns the tum repo root: either $TUM_ROOT, or the nearest
+// ancestor of cwd containing go.mod (the tum repo itself).
+func tumRoot() string {
+	if r := os.Getenv("TUM_ROOT"); r != "" {
+		return r
+	}
+	dir, _ := os.Getwd()
+	for i := 0; i < 10; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "."
+}

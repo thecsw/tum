@@ -25,9 +25,9 @@ var builtinFS embed.FS
 type Recipe struct {
 	Name        string        `toml:"name"`
 	DisplayName string        `toml:"display_name"`
-	SourceDir   string        `toml:"source_dir"` // host path to the source tree
-	BuildCmd    string        `toml:"build_cmd"`  // shell command; {{.SourceDir}} substituted
-	Binary      string        `toml:"binary"`     // built binary, relative to SourceDir
+	SourceDir   string        `toml:"source_dir"`  // host path to the source tree
+	BuildCmd    string        `toml:"build_cmd"`   // shell command; {{.SourceDir}} substituted
+	Binary      string        `toml:"binary"`      // built binary, relative to SourceDir
 	BinaryName  string        `toml:"binary_name"` // on-device base name (gets -suffix)
 	Icon        string        `toml:"icon"`        // optional icon asset, relative to SourceDir
 	Manifest    manifest.Spec `toml:"manifest"`
@@ -74,8 +74,8 @@ func List() []string {
 	return out
 }
 
-// RenderBuildCmd substitutes {{.SourceDir}} into BuildCmd.
-func (r *Recipe) RenderBuildCmd() (string, error) {
+// RenderBuildCmd substitutes {{.SourceDir}} and {{.TumRoot}} into BuildCmd.
+func (r *Recipe) RenderBuildCmd(tumRoot string) (string, error) {
 	if r.BuildCmd == "" {
 		return "", fmt.Errorf("recipe %s: empty build_cmd", r.Name)
 	}
@@ -84,7 +84,10 @@ func (r *Recipe) RenderBuildCmd() (string, error) {
 		return "", fmt.Errorf("recipe %s: bad build_cmd template: %w", r.Name, err)
 	}
 	var b strings.Builder
-	if err := t.Execute(&b, map[string]string{"SourceDir": r.SourceDir}); err != nil {
+	if err := t.Execute(&b, map[string]string{
+		"SourceDir": r.SourceDir,
+		"TumRoot":   tumRoot,
+	}); err != nil {
 		return "", err
 	}
 	return b.String(), nil

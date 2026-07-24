@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"path/filepath"
+
 	"github.com/spf13/cobra"
 
 	"github.com/thecsw/tum/internal/appload"
@@ -22,9 +24,9 @@ var installCmd = &cobra.Command{
 		suffix := cfg.DefaultSuffix
 		var hostBin string
 		if installNoBuild {
-			hostBin = r.SourceDir + "/" + r.Binary
+			hostBin = filepath.Join(tumRoot(), r.SourceDir, r.Binary)
 		} else {
-			hostBin, err = build.Run(r)
+			hostBin, err = build.Run(r, tumRoot())
 			if err != nil {
 				return err
 			}
