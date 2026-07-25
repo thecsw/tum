@@ -69,7 +69,18 @@ is the whole conflict-avoidance design.
 ### 6. The framebuffer is RGB565
 `/dev/fb0` (via the shim) presents `1404×1872`, 16bpp, stride=2808. Pixels are
 **RGB565** (0x0000 black, 0xFFFF white). Use `WaveformGC16`+`mode=1`(FULL) to
-clear ghosting; `WaveformDU` for fast partial updates. See `internal/rmfb`.
+clear ghosting; `WaveformDU` for fast partial/animated updates. See `internal/rmfb`.
+
+### 7. Input device paths (confusing!)
+The `/dev/input/touchscreen0` symlink points to **event1 = the Wacom pen
+digitizer**, NOT the touch panel. The real devices are:
+- `event0` — power button (`snvs-powerkey`)
+- `event1` — Wacom pen digitizer (a.k.a. `touchscreen0` symlink — misleading)
+- `event2` — **touch panel** (`pt_mt`) — this is what you want for touches
+- `event3` — Type Folio keyboard (`rM_Keyboard`)
+The `QTFB_SHIM_INPUT_PATH_NULL=/dev/input/touchscreen0` env in manifests tells
+the shim to nullify its own input handling of that path so the app can read
+raw evdev. To exit on "any input", open event2 (touch) + event3 (keyboard).
 
 ## Repo layout
 
