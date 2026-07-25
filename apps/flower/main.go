@@ -1,7 +1,8 @@
-// flower: draws an animated 8-petal rose-curve flower on the reMarkable screen,
-// growing petal-by-petal. Exit on any touch or any keyboard key press.
+// flower: draws an 8-petal rose-curve flower on the reMarkable, blooming one
+// petal at a time clockwise. Exit on any touch or any keyboard key press.
 //
-// The reference Go rM app on rmfb + rminput.
+// IMPORTANT: never do full-screen updates in a tight loop — that freezes the
+// EPDC. Draw one petal, update only that petal's small region, then pause.
 package main
 
 import (
@@ -20,6 +21,9 @@ const (
 	black = 0x0000
 )
 
+// 8 petals: r = R*|cos(4θ)|. Petals are centered at θ = i*π/4 for i=0..7.
+const k = 4.0
+
 func main() {
 	fb, err := rmfb.Open()
 	if err != nil {
@@ -29,20 +33,17 @@ func main() {
 	defer fb.Close()
 	fmt.Fprintln(os.Stderr, "flower:", fb)
 
-	// Clear to white (blank page) with a full refresh.
+	// Clear to white with a full refresh.
 	fb.Fill(white)
-	if err := fb.FullUpdate(); err != nil {
-		fmt.Fprintln(os.Stderr, "flower:", err)
-		os.Exit(1)
-	}
+	fb.FullUpdate()
+	time.Sleep(200 * time.Millisecond)
 
-	// Watch touch + keyboard in the background; either signals exit.
+	// Watch touch + keyboard; either signals exit.
 	stop := make(chan struct{})
 	var once sync.Once
 	exitOn := func(path, name string) {
 		r, err := rminput.New(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "flower: %s unavailable: %v\n", name, err)
 			return
 		}
 		defer r.Close()
@@ -51,72 +52,72 @@ func main() {
 			if err != nil {
 				return
 			}
-			// Any touch contact or any key press → exit.
 			if ev.IsTouch() || ev.IsKeyPress() {
-				fmt.Fprintf(os.Stderr, "flower: %s activity, exiting\n", name)
 				once.Do(func() { close(stop) })
 				return
 			}
 		}
 	}
-	// Touch is /dev/input/event2 (pt_mt). Keyboard/folio is event3 (rM_Keyboard).
 	go exitOn("/dev/input/event2", "touch")
 	go exitOn("/dev/input/event3", "keyboard")
 
-	// Animate the bloom: grow the flower petal by petal with DU updates.
-	animateBloom(fb, stop)
-	fmt.Fprintln(os.Stderr, "flower: bloomed 🌸 (touch or press a key to exit)")
-
-	// Wait for exit signal.
-	<-stop
-	// Final clean full refresh.
-	fb.FullUpdate()
-}
-
-// animateBloom grows the flower from center outward, drawing petals one at a
-// time. Each step does a DU (fast) update so you can watch it grow.
-func animateBloom(fb *rmfb.FB, stop <-chan struct{}) {
-	set := func(x, y int) { fb.SetPixel(x, y, black) }
-
-	cx, cy := fb.Width/2, fb.Height/2-100
+	// Flower geometry.
+	cx := fb.Width / 2
+	cy := fb.Height/2 - 100
 	R := float64(fb.Width/2) - 80
 	if r := float64(fb.Height/2 - 120); r < R {
 		R = r
 	}
-	k := 4.0 // 8 petals
 
-	// Center disk first.
-	drawDisk(fb, cx, cy, 18, set)
+	set := func(x, y int) { fb.SetPixel(x, y, black) }
+
+	// Center disk.
+	drawDisk(cx, cy, 16, set)
 	fb.Update(cx-20, cy-20, 40, 40, rmfb.WaveformDU, 0)
+	time.Sleep(300 * time.Millisecond)
 
-	// Grow each petal: walk θ from 0 to 2π, drawing the radius out to the
-	// current max. Step in small angular increments so it blooms smoothly.
-	steps := 60
-	for step := 1; step <= steps; step++ {
+	// Bloom one petal at a time, clockwise.
+	// Each petal spans π/4 in θ. Petal i covers θ ∈ [i*π/4 - π/8, i*π/4 + π/8].
+	numPetals := 8
+	for i := 0; i < numPetals; i++ {
 		select {
 		case <-stop:
 			return
 		default:
 		}
-		frac := float64(step) / float64(steps)
-		maxR := R * frac
-		// Draw the bloom up to maxR for all angles.
-		for theta := 0.0; theta < 2*math.Pi; theta += 0.02 {
-			r := R * math.Abs(math.Cos(k*theta))
-			if r > maxR {
-				// only draw the outer ring at the current radius (growing edge)
-				r = maxR
+		// Compute the petal's bounding box as we draw it.
+		minX, minY := cx, cy
+		maxX, maxY := cx, cy
+		updateBB := func(x, y int) {
+			if x < minX {
+				minX = x
 			}
-			// fill from center to current edge
-			for rr := 0.0; rr <= r; rr += 2.0 {
+			if y < minY {
+				minY = y
+			}
+			if x > maxX {
+				maxX = x
+			}
+			if y > maxY {
+				maxY = y
+			}
+		}
+
+		thetaStart := float64(i)*math.Pi/4 - math.Pi/8
+		thetaEnd := float64(i)*math.Pi/4 + math.Pi/8
+		for theta := thetaStart; theta <= thetaEnd; theta += 0.003 {
+			r := R * math.Abs(math.Cos(k*theta))
+			for rr := 0.0; rr <= r; rr += 1.0 {
 				x := int(float64(cx) + rr*math.Cos(theta))
 				y := int(float64(cy) + rr*math.Sin(theta))
 				set(x, y)
+				updateBB(x, y)
 			}
 		}
-		// DU update the bloom region (fast, no full flash).
-		fb.Update(0, 0, fb.Width, fb.Height, rmfb.WaveformDU, 0)
-		time.Sleep(40 * time.Millisecond)
+		// Update ONLY this petal's region (small, fast, won't freeze EPDC).
+		pad := 10
+		fb.Update(minY-pad, minX-pad, (maxX-minX)+pad*2, (maxY-minY)+pad*2, rmfb.WaveformDU, 0)
+		time.Sleep(350 * time.Millisecond)
 	}
 
 	// Inner bloom for depth.
@@ -136,14 +137,18 @@ func animateBloom(fb *rmfb.FB, stop <-chan struct{}) {
 		set(cx+1, y)
 	}
 	leafY := cy + (fb.Height-cy)/3
-	drawLeaf(fb, cx, leafY, 80, 1, set)
-	drawLeaf(fb, cx, leafY+40, 70, -1, set)
+	drawLeaf(cx, leafY, 80, 1, set)
+	drawLeaf(cx, leafY+40, 70, -1, set)
 
-	// Final full refresh to clean up ghosting and show the whole flower.
+	// Final clean full refresh.
+	fb.FullUpdate()
+	fmt.Fprintln(os.Stderr, "flower: bloomed 🌸 (touch or press a key to exit)")
+
+	<-stop
 	fb.FullUpdate()
 }
 
-func drawDisk(fb *rmfb.FB, cx, cy, r int, set func(int, int)) {
+func drawDisk(cx, cy, r int, set func(int, int)) {
 	for y := -r; y <= r; y++ {
 		for x := -r; x <= r; x++ {
 			if x*x+y*y <= r*r {
@@ -153,7 +158,7 @@ func drawDisk(fb *rmfb.FB, cx, cy, r int, set func(int, int)) {
 	}
 }
 
-func drawLeaf(fb *rmfb.FB, cx, cy, size, dir int, set func(int, int)) {
+func drawLeaf(cx, cy, size, dir int, set func(int, int)) {
 	for t := -math.Pi / 2; t <= math.Pi/2; t += 0.02 {
 		r := float64(size) * math.Cos(t)
 		x := int(r * float64(dir))
