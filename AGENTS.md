@@ -168,24 +168,44 @@ though all diagnostics say `rotation=3` (CounterClockwise) and
 4. Added `std::cerr` diagnostics in `checkLandscape` and `build()` — all show
    `rotation=3` consistently.
 
-**The core mystery**: the `Rotated` widget gets `rotation=3` (CCW) but the
-screen renders portrait. Possible causes to investigate:
-- Is `RotatedRenderObject::doDraw` actually creating a rotated subCanvas?
-  Check `canvas.subCanvas(canvas.rect(), invert(rot))` — does the qtfb-shim's
-  framebuffer geometry (1404×1872) interact badly with the rotation math?
-- Is there a **second build** that overwrites the rotation? The `build()`
-  diagnostic shows `rotation=3` on builds #1 and #2, but maybe a later build
-  (not captured in the 5s test) reverts.
-- Does appload launch the app with different env than our SSH test? The SSH
-  diagnostic shows rotation=3, but maybe the launcher-launched instance
-  behaves differently.
-- Is the `Rotated` widget's `doLayout` computing the wrong size, causing the
-  child to lay out in portrait dimensions? Trace `rotate(invert(rot),
-  constraints)` with the actual fb size.
-- Compare with the **vellum original** binary (`yaft.orig` backed up on
-  device at `/home/root/xovi/exthome/appload/yaft/yaft.orig`) — does IT
-  render landscape with the folio? If yes, diff the build (codex gcc-13.4 vs
-  our debian gcc-12.2) or check if vellum's package patches the source.
+**The core mystery (SOLVED by Codex)**: Codex captured the live qtfb
+framebuffer from `/dev/shm/qtfb_*` and proved the terminal text IS correctly
+rotated 90° CCW in the framebuffer. The `Rotated` widget works. The problem
+is in the **display compositing path**: the qtfb-shim provides a portrait
+framebuffer (1404×1872) to the app, the app writes rotated content into it,
+but the shim/appload displays the framebuffer content as a portrait image on
+the physical screen. The rotated text appears sideways within a portrait
+window — which looks like "portrait mode" to the user.
+
+**The qtfb-shim** (source: `github.com/asivery/rm-appload`, `shim/` dir):
+- `QTFB_SHIM_MODEL`: RM1/RM2/RMPP — what device to emulate (changes input
+  device names + coordinate transforms). RM1 works (runs); RM2 hits
+  `FATAL: Unsupported device` in manual SSH tests (appload sets `QTFB_KEY`
+  which Codex's fix detects, but this is fragile).
+- `QTFB_SHIM_MODE`: framebuffer format — `RM2FB` (rgb565 1404×1872) or
+  `RGB888` (rgb888 1620×2160). Controls the virtual framebuffer size.
+- The shim has a `"rotate"` string but no documented rotation env var.
+- The appload `aspectRatio` field ("original"/"auto") controls the Qt window
+  size but both are portrait on rM2 — there's no "landscape" option.
+
+**Codex's fixes (kept, commit ce014e2 in rM2-stuff)**:
+- `FrameBuffer.cpp`: detect `QTFB_KEY` as a shim backend (qtfb doesn't set
+  `RM2FB_SHIM`).
+- `Device.cpp`: handle qtfb's RM1-aliased touch name (`cyttsp5_mt`) on RM2.
+These are correct but don't fix the display issue — they fix backend detection.
+
+**What to try next**:
+- The old yaft code (pre-commit `df9bd4a "Use generic rotate widget"`) had
+  `Screen::isLandscape` which drew pixels at rotated coordinates AND sent
+  update regions in the rotated space. The `Rotated` widget rotates the canvas
+  but maybe the update regions aren't what the shim expects. Try reverting to
+  the old `isLandscape` approach in `screen.cpp`.
+- Or: don't rotate at the widget level at all. Instead, have yaft request a
+  landscape framebuffer from the shim (if `QTFB_SHIM_MODE` supports it) or
+  have appload create a landscape Qt window.
+- Or: write pixels directly in landscape coordinates (swap x/y in
+  `Screen::drawLine`) and send landscape-sized update regions, bypassing the
+  `Rotated` widget entirely.
 
 **Key files**:
 - `apps/rM2-stuff/apps/yaft/YaftWidget.h` — `build()` creates `Rotated(rotation, ...)`
