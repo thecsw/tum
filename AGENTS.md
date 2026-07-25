@@ -168,44 +168,33 @@ though all diagnostics say `rotation=3` (CounterClockwise) and
 4. Added `std::cerr` diagnostics in `checkLandscape` and `build()` — all show
    `rotation=3` consistently.
 
-**The core mystery (SOLVED by Codex)**: Codex captured the live qtfb
-framebuffer from `/dev/shm/qtfb_*` and proved the terminal text IS correctly
-rotated 90° CCW in the framebuffer. The `Rotated` widget works. The problem
-is in the **display compositing path**: the qtfb-shim provides a portrait
-framebuffer (1404×1872) to the app, the app writes rotated content into it,
-but the shim/appload displays the framebuffer content as a portrait image on
-the physical screen. The rotated text appears sideways within a portrait
-window — which looks like "portrait mode" to the user.
+**The core mystery (SOLVED)**: The qtfb-shim/xochitl display compositing
+applies its own rotation. The working combination for upright landscape is:
+- `Screen::isLandscape=true` in `doLayout` (sizing) — sizes the terminal for
+  the framebuffer dimensions (no w/h swap).
+- `isLandscape=false` in `drawLine` (pixel drawing) — draws in portrait
+  coordinates; the display's compositing handles the rotation to landscape.
+- No `Rotated` widget wrapper.
 
-**The qtfb-shim** (source: `github.com/asivery/rm-appload`, `shim/` dir):
-- `QTFB_SHIM_MODEL`: RM1/RM2/RMPP — what device to emulate (changes input
-  device names + coordinate transforms). RM1 works (runs); RM2 hits
-  `FATAL: Unsupported device` in manual SSH tests (appload sets `QTFB_KEY`
-  which Codex's fix detects, but this is fragile).
-- `QTFB_SHIM_MODE`: framebuffer format — `RM2FB` (rgb565 1404×1872) or
-  `RGB888` (rgb888 1620×2160). Controls the virtual framebuffer size.
-- The shim has a `"rotate"` string but no documented rotation env var.
-- The appload `aspectRatio` field ("original"/"auto") controls the Qt window
-  size but both are portrait on rM2 — there's no "landscape" option.
+The matrix of attempts:
+| doLayout sizing | drawLine coords | Result |
+|---|---|---|
+| swap (1872 wide) | portrait (false) | upright landscape, ~25% margin |
+| no swap (1404 wide) | portrait (false) | upright landscape, ~25% margin (CURRENT) |
+| swap (1872 wide) | swapped (true) | 180° inverted portrait |
+| Rotated widget | — | thin column, 90% blank |
 
-**Codex's fixes (kept, commit ce014e2 in rM2-stuff)**:
-- `FrameBuffer.cpp`: detect `QTFB_KEY` as a shim backend (qtfb doesn't set
-  `RM2FB_SHIM`).
-- `Device.cpp`: handle qtfb's RM1-aliased touch name (`cyttsp5_mt`) on RM2.
-These are correct but don't fix the display issue — they fix backend detection.
+**Known limitation**: ~25% blank margin on one side. The terminal fills the
+framebuffer width (1404) but the display shows it at 1872 wide (landscape),
+so there's unfilled space. Can't be eliminated with portrait drawing (the
+terminal can't exceed the framebuffer width without swapped pixel coords,
+which invert). A future fix might write pixels directly in landscape
+coordinates with a custom transform that doesn't invert.
 
-**What to try next**:
-- The old yaft code (pre-commit `df9bd4a "Use generic rotate widget"`) had
-  `Screen::isLandscape` which drew pixels at rotated coordinates AND sent
-  update regions in the rotated space. The `Rotated` widget rotates the canvas
-  but maybe the update regions aren't what the shim expects. Try reverting to
-  the old `isLandscape` approach in `screen.cpp`.
-- Or: don't rotate at the widget level at all. Instead, have yaft request a
-  landscape framebuffer from the shim (if `QTFB_SHIM_MODE` supports it) or
-  have appload create a landscape Qt window.
-- Or: write pixels directly in landscape coordinates (swap x/y in
-  `Screen::drawLine`) and send landscape-sized update regions, bypassing the
-  `Rotated` widget entirely.
+**Config error rendering**: the `0??clockwise` garble you see on the e-ink is
+a **rendering artifact** of error message bytes, not real config corruption.
+The config parses fine (verified: `rotation=3` loads correctly). The garble is
+the terminal rendering escape sequences/special chars as junk on e-ink.
 
 **Key files**:
 - `apps/rM2-stuff/apps/yaft/YaftWidget.h` — `build()` creates `Rotated(rotation, ...)`
