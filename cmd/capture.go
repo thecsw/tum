@@ -63,14 +63,29 @@ captures. Examples:
 			if runCmd == "" {
 				runCmd = "/bin/sleep " + fmt.Sprint(captureWait+5)
 			}
-			// Launch with the manifest's env, in the background.
-			fmt.Fprintf(os.Stderr, "tum: launching %s for %ds...\n", appName, captureWait)
+			// Read the manifest's environment (like appload does) so we launch
+			// with the correct QTFB_SHIM_MODEL etc. Also generate a QTFB_KEY —
+			// appload does this dynamically, and the shim needs it to create its
+			// shared-memory framebuffer (without it, RM2 hits "unsupported device").
+			manifestPath := dir + "/external.manifest.json"
+			envStr, err := d.Run("cat " + shQuote(manifestPath))
+			if err != nil {
+				return fmt.Errorf("read manifest: %w", err)
+			}
+			envVars := parseManifestEnv(envStr)
+			envVars["QTFB_KEY"] = fmt.Sprintf("%d", time.Now().UnixNano()%100000)
+			envVars["HOME"] = "/home/root"
+
+			// Build the env assignment string.
+			envAssign := ""
+			for k, v := range envVars {
+				envAssign += k + "=" + shQuote(v) + " "
+			}
+
+			fmt.Fprintf(os.Stderr, "tum: launching %s for %ds (env: %s)…\n", appName, captureWait, envSummary(envVars))
 			shell := fmt.Sprintf(
-				`cd %s && env LD_PRELOAD=/home/root/shims/qtfb-shim.so `+
-					`QTFB_SHIM_MODEL=RM1 QTFB_SHIM_INPUT_PATH_NULL=/dev/input/touchscreen0 `+
-					`QTFB_SHIM_INITIAL_DISPLAY_MODE=ANIMATE HOME=/home/root `+
-					`./%s %s >/tmp/tum-capture.log 2>&1 &`,
-				shQuote(dir), shQuote(appName+"-"+cfg.DefaultSuffix), runCmd)
+				`cd %s && env %s ./%s %s >/tmp/tum-capture.log 2>&1 &`,
+				shQuote(dir), envAssign, shQuote(appName+"-"+cfg.DefaultSuffix), runCmd)
 			if _, err := d.Run(shell); err != nil {
 				return fmt.Errorf("launch %s: %w", appName, err)
 			}
