@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package rminput reads raw evdev events from the reMarkable touch panel and
 // keyboard. Minimal: reports touch-down/up and key events.
 package rminput

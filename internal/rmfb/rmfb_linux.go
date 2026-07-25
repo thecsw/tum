@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package rmfb is a tiny Go binding to the reMarkable framebuffer via the
 // qtfb-shim. It opens /dev/fb0, mmaps it, and sends MXCFB updates with the
 // right waveform. Used by Go rM apps that draw directly to the screen.
