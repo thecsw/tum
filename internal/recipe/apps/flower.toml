@@ -1,0 +1,23 @@
+# tum recipe for flower — the first Go rM app (draws a rose-curve flower).
+# Builds Go with cgo so the qtfb-shim LD_PRELOAD hooks intercept framebuffer
+# ioctls (a static Go binary would bypass them).
+
+name = "flower"
+display_name = "Flower"
+source_dir = "apps/flower"
+binary_name = "flower"
+
+build_cmd = 'docker run --rm -v "{{.TumRoot}}:/src:cached" -w /src/apps/flower tum-go-armhf bash -c "CGO_ENABLED=1 GOOS=linux GOARCH=arm GOARM=7 CC=arm-linux-gnueabihf-gcc CGO_CFLAGS=\"-I/src/apps/rM2-stuff/vendor\" go build -o /src/apps/flower/flower ."'
+
+binary = "flower"
+icon = ""
+
+[manifest]
+aspect_ratio = "original"
+qtfb = true
+
+[manifest.environment]
+LD_PRELOAD = "/home/root/shims/qtfb-shim.so"
+QTFB_SHIM_MODEL = "RM1"
+QTFB_SHIM_INPUT_PATH_NULL = "/dev/input/touchscreen0"
+QTFB_SHIM_INITIAL_DISPLAY_MODE = "ANIMATE"

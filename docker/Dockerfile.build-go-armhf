@@ -1,0 +1,20 @@
+# Cross-build environment for pure-Go AND cgo rM apps (armv7-a hard-float).
+#
+# Extends the rM2-stuff C++ cross image with Go. cgo Go apps link against the
+# arm glibc, so the resulting binary is dynamically linked and — crucially —
+# calls libc ioctl/mmap through the PLT, which the qtfb-shim's LD_PRELOAD hooks
+# intercept. (A static Go binary makes raw syscalls that bypass the shim.)
+#
+# Build: docker build -t tum-go-armhf -f docker/Dockerfile.build-go-armhf .
+FROM rm2stuff-cross-armhf
+
+ARG GO_VERSION=1.26.5
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wget && \
+    wget -q -O /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz" && \
+    tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz && \
+    ln -s /usr/local/go/bin/go /usr/local/bin/go && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV GOCACHE=/tmp/gocache
+WORKDIR /src
