@@ -37,14 +37,16 @@ func (p RGB565) RGBA() (r, g, b, a uint32) {
 type Analysis struct {
 	Width, Height int
 	ContentBBox   [4]int // minx, maxx, miny, maxy
-	HorizBands    int    // horizontal text lines (rows with dark pixels)
-	VertBands     int    // vertical text lines (cols with dark pixels)
+	HorizBands    int    // horizontal text runs (portrait text)
+	VertBands     int    // vertical text runs (rotated/landscape text)
 	Orientation   string // "portrait", "landscape-rotated", "empty", "ambiguous"
 }
 
 // Analyze decodes the RGB565 framebuffer bytes and detects text orientation.
-// Portrait text has many horizontal bands (rows); rotated text has vertical
-// bands (columns).
+// The qtfb framebuffer is always 1404x1872 (portrait storage), but the app
+// may write rotated text into it. We detect this by counting horizontal text
+// runs (rows of consecutive dark pixels = normal portrait text) vs vertical
+// text runs (columns of consecutive dark pixels = rotated/landscape text).
 func Analyze(data []byte) Analysis {
 	a := Analysis{Width: FbWidth, Height: FbHeight}
 	if len(data) < FbWidth*FbHeight*BPP {
@@ -52,64 +54,94 @@ func Analyze(data []byte) Analysis {
 		return a
 	}
 
-	rowDark := make([]int, FbHeight)
-	colDark := make([]int, FbWidth)
-	minx, maxx, miny, maxy := -1, -1, -1, -1
+	// Build a downsampled dark-pixel bitmap (4x downsample for speed).
+	dw := FbWidth / 4
+	dh := FbHeight / 4
+	dark := make([]bool, dw*dh)
 
-	// Sample every other pixel for speed.
-	for y := 0; y < FbHeight; y += 2 {
+	for y := 0; y < FbHeight; y += 4 {
 		base := y * FbWidth * BPP
-		for x := 0; x < FbWidth; x += 2 {
+		for x := 0; x < FbWidth; x += 4 {
 			val := binary.LittleEndian.Uint16(data[base+x*BPP:])
 			r := (val >> 11) & 0x1f
 			g := (val >> 5) & 0x3f
 			b := val & 0x1f
 			if (r+g+b)/3 < 25 {
-				rowDark[y]++
-				colDark[x]++
-				if minx == -1 || x < minx {
-					minx = x
+				dark[(y/4)*dw+(x/4)] = true
+			}
+		}
+	}
+
+	// Count horizontal runs (portrait text lines).
+	hRuns := 0
+	for y := 0; y < dh; y++ {
+		inRun := false
+		for x := 0; x < dw; x++ {
+			if dark[y*dw+x] {
+				if !inRun {
+					hRuns++
+					inRun = true
 				}
-				if x > maxx {
-					maxx = x
+			} else {
+				inRun = false
+			}
+		}
+	}
+
+	// Count vertical runs (rotated text lines).
+	vRuns := 0
+	for x := 0; x < dw; x++ {
+		inRun := false
+		for y := 0; y < dh; y++ {
+			if dark[y*dw+x] {
+				if !inRun {
+					vRuns++
+					inRun = true
 				}
-				if miny == -1 || y < miny {
-					miny = y
+			} else {
+				inRun = false
+			}
+		}
+	}
+
+	// Count dark pixels + bbox for reporting.
+	minx, maxx, miny, maxy := -1, -1, -1, -1
+	totalDark := 0
+	for y := 0; y < dh; y++ {
+		for x := 0; x < dw; x++ {
+			if dark[y*dw+x] {
+				totalDark++
+				rx, ry := x*4, y*4
+				if minx == -1 || rx < minx {
+					minx = rx
 				}
-				if y > maxy {
-					maxy = y
+				if rx > maxx {
+					maxx = rx
+				}
+				if miny == -1 || ry < miny {
+					miny = ry
+				}
+				if ry > maxy {
+					maxy = ry
 				}
 			}
 		}
 	}
 
 	a.ContentBBox = [4]int{minx, maxx, miny, maxy}
-	a.HorizBands = countBands(rowDark, 4)
-	a.VertBands = countBands(colDark, 4)
+	a.HorizBands = hRuns
+	a.VertBands = vRuns
 
 	if minx == -1 {
 		a.Orientation = "empty"
-	} else if a.HorizBands > a.VertBands*2 {
-		a.Orientation = "portrait"
-	} else if a.VertBands > a.HorizBands*2 {
+	} else if vRuns > hRuns*3/2 {
 		a.Orientation = "landscape-rotated"
+	} else if hRuns > vRuns*3/2 {
+		a.Orientation = "portrait"
 	} else {
 		a.Orientation = "ambiguous"
 	}
 	return a
-}
-
-func countBands(arr []int, thresh int) int {
-	bands, inBand := 0, false
-	for _, v := range arr {
-		if v > thresh && !inBand {
-			bands++
-			inBand = true
-		} else if v <= thresh {
-			inBand = false
-		}
-	}
-	return bands
 }
 
 // String formats the analysis for display.
@@ -121,7 +153,7 @@ func (a Analysis) String() string {
 		return fmt.Sprintf("%dx%d, content: EMPTY", a.Width, a.Height)
 	}
 	bb := a.ContentBBox
-	return fmt.Sprintf("%dx%d, content bbox %dx%d at (%d,%d), h-bands=%d v-bands=%d → %s",
+	return fmt.Sprintf("%dx%d, content bbox %dx%d at (%d,%d), h-runs=%d v-runs=%d → %s",
 		a.Width, a.Height, bb[1]-bb[0], bb[3]-bb[2], bb[0], bb[2], a.HorizBands, a.VertBands, a.Orientation)
 }
 
