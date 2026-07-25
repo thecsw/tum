@@ -191,10 +191,10 @@ terminal can't exceed the framebuffer width without swapped pixel coords,
 which invert). A future fix might write pixels directly in landscape
 coordinates with a custom transform that doesn't invert.
 
-**Config error rendering**: the `0??clockwise` garble you see on the e-ink is
-a **rendering artifact** of error message bytes, not real config corruption.
-The config parses fine (verified: `rotation=3` loads correctly). The garble is
-the terminal rendering escape sequences/special chars as junk on e-ink.
+**Config error rendering (SOLVED)**: the `0??clockwise` garble was yaft's
+`logTerm()` writing config error messages into the pty as visible terminal
+text. Fixed: config errors now go to stderr only, so the terminal starts
+clean with just the shell prompt. The config itself was always valid.
 
 **Key files**:
 - `apps/rM2-stuff/apps/yaft/YaftWidget.h` — `build()` creates `Rotated(rotation, ...)`
