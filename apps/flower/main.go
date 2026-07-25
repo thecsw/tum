@@ -120,17 +120,10 @@ func main() {
 		time.Sleep(350 * time.Millisecond)
 	}
 
-	// Inner bloom for depth.
-	for theta := 0.0; theta < 2*math.Pi; theta += 0.003 {
-		r := (R / 2) * math.Abs(math.Cos(k*theta+math.Pi/k))
-		for rr := 0.0; rr <= r; rr += 1.0 {
-			x := int(float64(cx) + rr*math.Cos(theta))
-			y := int(float64(cy) + rr*math.Sin(theta))
-			set(x, y)
-		}
-	}
-
-	// Stem + leaves.
+	// Stem + leaves (small regional DU update — no full-screen GC16 to avoid
+	// the EPDC freeze that GC16-full causes).
+	stemMinY := cy
+	stemMaxY := fb.Height - 30
 	for y := cy; y < fb.Height-30; y++ {
 		set(cx, y)
 		set(cx-1, y)
@@ -139,13 +132,12 @@ func main() {
 	leafY := cy + (fb.Height-cy)/3
 	drawLeaf(cx, leafY, 80, 1, set)
 	drawLeaf(cx, leafY+40, 70, -1, set)
-
-	// Final clean full refresh.
-	fb.FullUpdate()
+	// One small regional update for the stem+leaves.
+	fb.Update(stemMinY, cx-90, 180, stemMaxY-stemMinY, rmfb.WaveformDU, 0)
 	fmt.Fprintln(os.Stderr, "flower: bloomed 🌸 (touch or press a key to exit)")
 
 	<-stop
-	fb.FullUpdate()
+	// Exit: small regional DU update to clear, no full-screen GC16.
 }
 
 func drawDisk(cx, cy, r int, set func(int, int)) {
