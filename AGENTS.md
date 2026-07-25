@@ -136,21 +136,75 @@ ssh root@10.11.99.1 'bash /home/root/xovi/start'   # restart launcher to pick up
 # then tap the tile on the tablet
 ```
 
-## The yaft rotation bug (history + state)
+## The yaft rotation bug (UNRESOLVED — needs investigation)
 
-The Type Folio rotation was the original task. Status:
-- **Config is fixed**: `folio-rotation = "counterclockwise"` in
-  `~/.config/yaft/config.toml` produces **upright, readable** landscape with
-  the folio attached (confirmed). `clockwise` → upside-down.
-- **A `change`-event fix was applied** in `libs/rMlib/Input.cpp` (only
-  `removeDevice` on explicit `"remove"`, not on `"change"`), because the folio
-  emits `change` events that spuriously cleared `pogoKeyboard` mid-session.
-  **This fix is NOT yet verified end-to-end** — if yaft still reverts to
-  portrait on a full ink refresh with the folio attached, the `change`-event
-  theory was incomplete and further debugging of the udev/`onDeviceUpdate`
-  path is needed. The diagnostic `std::cerr` lines in `checkLandscape` log
-  `hasKeyboard`/`rotation` live — grep for `yaft: checkLandscape` in stderr.
-- The qtfb-shim applies **no rotation of its own** (confirmed via strings).
+**Symptom**: With the Type Folio attached, yaft renders in **portrait** even
+though all diagnostics say `rotation=3` (CounterClockwise) and
+`hideKeyboard=1`. The screen should be landscape but isn't.
+
+**What's confirmed working**:
+- `folio-rotation = "counterclockwise"` is the correct direction — when it
+  DID render landscape (once), the text was upright and readable.
+  `clockwise` → upside-down.
+- The folio IS detected: `hasKeyboard=1`, `pogoKeyboard != nullptr`.
+- `checkLandscape` sets `rotation=3` (CCW) and `hideKeyboard=1`.
+- `build()` is called with `rotation=3` — the `Rotated` widget receives CCW.
+- The qtfb-shim applies **no rotation of its own** (confirmed via `strings`).
+- Ctrl+Z exits the app correctly (scancode 0x5a/0x7a, not 0x1a).
+- A **forced** `auto-rotate=false` + `rotation=counterclockwise` config
+  rendered landscape correctly in ONE early test, but subsequent rebuilds
+  with the same settings render portrait. This is deeply confusing.
+
+**What's been tried (and didn't fully fix it)**:
+1. `libs/rMlib/Input.cpp`: ignore all non-add udev events (the OS re-enumerates
+   input devices on ink-refresh/wake, generating spurious remove/change events
+   that clear `pogoKeyboard`). This stops the *mid-session revert* but the
+   *initial* portrait rendering persists.
+2. `apps/yaft/YaftWidget.cpp`: `checkLandscape` always hides the on-screen
+   keyboard when the folio is attached (was only hiding it in the autoRotate
+   branch).
+3. `apps/yaft/config.h`: defaults changed to `autoRotate=false` +
+   `rotation=CounterClockwise`.
+4. Added `std::cerr` diagnostics in `checkLandscape` and `build()` — all show
+   `rotation=3` consistently.
+
+**The core mystery**: the `Rotated` widget gets `rotation=3` (CCW) but the
+screen renders portrait. Possible causes to investigate:
+- Is `RotatedRenderObject::doDraw` actually creating a rotated subCanvas?
+  Check `canvas.subCanvas(canvas.rect(), invert(rot))` — does the qtfb-shim's
+  framebuffer geometry (1404×1872) interact badly with the rotation math?
+- Is there a **second build** that overwrites the rotation? The `build()`
+  diagnostic shows `rotation=3` on builds #1 and #2, but maybe a later build
+  (not captured in the 5s test) reverts.
+- Does appload launch the app with different env than our SSH test? The SSH
+  diagnostic shows rotation=3, but maybe the launcher-launched instance
+  behaves differently.
+- Is the `Rotated` widget's `doLayout` computing the wrong size, causing the
+  child to lay out in portrait dimensions? Trace `rotate(invert(rot),
+  constraints)` with the actual fb size.
+- Compare with the **vellum original** binary (`yaft.orig` backed up on
+  device at `/home/root/xovi/exthome/appload/yaft/yaft.orig`) — does IT
+  render landscape with the folio? If yes, diff the build (codex gcc-13.4 vs
+  our debian gcc-12.2) or check if vellum's package patches the source.
+
+**Key files**:
+- `apps/rM2-stuff/apps/yaft/YaftWidget.h` — `build()` creates `Rotated(rotation, ...)`
+- `apps/rM2-stuff/apps/yaft/YaftWidget.cpp` — `checkLandscape()` sets rotation
+- `apps/rM2-stuff/apps/yaft/screen.cpp` — `Screen::doLayout`/`doDraw` (always
+  `isLandscape=false` now; rotation handled by the `Rotated` wrapper)
+- `apps/rM2-stuff/libs/rMlib/include/UI/Rotate.h` — the rotation widget
+- `apps/rM2-stuff/libs/rMlib/include/MathUtil.h` — `rotate()`/`invert()` math
+
+**How to debug**:
+```sh
+# Run yaft with diagnostics, capture stderr:
+ssh root@10.11.99.1 'cd /home/root/xovi/exthome/appload/yaft-sandy && \
+  LD_PRELOAD=/home/root/shims/qtfb-shim.so QTFB_SHIM_MODEL=RM1 \
+  QTFB_SHIM_INPUT_PATH_NULL=/dev/input/touchscreen0 \
+  QTFB_SHIM_INITIAL_DISPLAY_MODE=ANIMATE HOME=/home/root \
+  ./yaft-sandy /bin/sh 2>&1' | grep -E 'build #|checkLandscape|init fb'
+# Then type in yaft to trigger rebuilds and watch if rotation changes.
+```
 
 ## Framework direction (the vision)
 
