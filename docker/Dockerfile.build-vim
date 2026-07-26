@@ -1,0 +1,10 @@
+# Cross-compile vim for reMarkable 2 (armv7, glibc 2.39)
+# Builds a static-ncurses vim with no GUI, no X11, normal features.
+FROM rm2stuff-cross-armhf
+
+RUN apt-get update -qq && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+        libncurses-dev:armhf make
+
+# Vim source is mounted at /src
+WORKDIR /src

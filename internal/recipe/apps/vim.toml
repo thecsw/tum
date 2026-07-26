@@ -1,0 +1,102 @@
+# vim recipe for tum
+# Cross-compile vim 9.x for the reMarkable 2 — a real vim (not busybox vi).
+#
+# The device ships only a 23-byte /usr/bin/vim stub that execs busybox vi,
+# which segfaults. This builds a proper static-ncurses vim with no GUI/X11.
+#
+# Runtime: vim needs its runtime/ dir (syntax, colors, defaults.vim) at
+# $VIMRUNTIME (falls back to /usr/local/share/vim/). On the device the root
+# filesystem is tiny (255MB), so runtime is stored under /home and symlinked.
+
+[app]
+name = "vim"
+version = "9.2.856"
+description = "Vim 9.2 — real vim for the Type Folio (not busybox vi)"
+build_dir = "{{.VimSrc}}"
+
+[build]
+docker_image = "tum-vim-armhf"
+dockerfile = "docker/Dockerfile.build-vim"
+steps = """
+make distclean || true
+export CC=arm-linux-gnueabihf-gcc
+export STRIP=arm-linux-gnueabihf-strip
+
+./configure \\
+  --host=arm-linux-gnueabihf \\
+  --prefix=/usr/local \\
+  --with-features=normal \\
+  --enable-multibyte \\
+  --enable-terminal \\
+  --enable-gui=no \\
+  --without-x \\
+  --with-tlib=ncurses \\
+  --with-vim-name=vim \\
+  --disable-canberra \\
+  --disable-netbeans \\
+  --disable-cscope \\
+  --disable-perlinterp \\
+  --disable-pythoninterp \\
+  --disable-python3interp \\
+  --disable-rubyinterp \\
+  --disable-luainterp \\
+  LDFLAGS="-L/usr/lib/arm-linux-gnueabihf" \\
+  CFLAGS="-O2 -I/usr/include"
+
+# Force static ncurses/tinfo (device has no libtinfo.so.6)
+sed -i "s|-lncurses|/usr/lib/arm-linux-gnueabihf/libncurses.a /usr/lib/arm-linux-gnueabihf/libtinfo.a|g" src/auto/config.mk
+
+make -j$(nproc)
+arm-linux-gnueabihf-strip src/vim
+"""
+
+[build.outputs]
+binary = "src/vim"
+
+[install]
+steps = """
+# Binary → /home/root/vim, symlinked into /usr/local/bin
+cp src/vim /home/root/vim
+chmod +x /home/root/vim
+ln -sf /home/root/vim /usr/local/bin/vim
+
+# Runtime → /home (root fs is too small), symlinked
+mkdir -p /home/root/.local/share
+rm -rf /usr/local/share/vim /home/root/.local/share/vim
+cp -a runtime/colors runtime/syntax runtime/indent runtime/keymap \\
+      runtime/autoload runtime/compiler runtime/tutor \\
+      runtime/defaults.vim runtime/evim.vim runtime/filetype.vim \\
+      runtime/ftplugin.vim runtime/ftplugof.vim runtime/ftoff.vim \\
+      runtime/scripts.vim runtime/vimrc_example.vim \\
+      runtime/bugreport.vim runtime/delmenu.vim runtime/menu.vim \\
+      runtime/mswin.vim runtime/optwin.vim \\
+      /home/root/.local/share/vim/ 2>/dev/null || true
+ln -sf /home/root/.local/share/vim /usr/local/share/vim
+
+# yaft-256color terminfo (compiled via tic on host, deployed as binary)
+mkdir -p /usr/share/terminfo/79 /usr/share/terminfo/y
+cp yaft-256color.ti /usr/share/terminfo/79/yaft-256color
+ln -sf /usr/share/terminfo/79/yaft-256color /usr/share/terminfo/y/yaft-256color
+
+# PATH: ensure /usr/local/bin precedes /usr/bin (where the stub lives)
+grep -q '/usr/local/bin' /home/root/.bashrc || \\
+  sed -i '/^export PATH/a export PATH="/usr/local/bin:/home/root/bin:$PATH"' /home/root/.bashrc
+"""
+
+[install.bin]
+path = "/home/root/vim"
+
+[notes]
+runtime = """
+Vim needs its runtime dir for syntax/colors/filetype detection. It lives at
+/home/root/.local/share/vim (symlinked from /usr/local/share/vim) because the
+root filesystem is only 255MB.
+
+TERM=yaft-256color must be set (yaft sets this). The terminfo is installed at
+/usr/share/terminfo/y/yaft-256color.
+"""
+folio = """
+The Type Folio has no Esc key — right-alt is mapped to Escape in yaft's
+dvorak keymap. No { } [ ] keys — use digraphs: in insert mode, Ctrl-K then
+{B = {, }B = }, [C = [, ]C = ]. The deployed ~/.vimrc enables `set digraph`.
+"""

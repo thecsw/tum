@@ -1,0 +1,66 @@
+" vimrc for reMarkable Type Folio
+" Constraints: no Esc key (right-alt mapped to Esc in yaft),
+" no { } [ ] keys (use digraphs: <C-k> {B }B [C ]C), e-ink screen.
+
+" --- essential ---
+set nocompatible
+filetype plugin indent on
+syntax on
+
+" --- e-ink friendly ---
+set t_Co=256
+set lazyredraw          " don't redraw while executing macros
+set ttyfast
+set noerrorbells        " no beeps
+set visualbell
+set t_vb=               " no visual bell either
+
+" --- editing ---
+set backspace=indent,eol,start
+set autoindent
+set smartindent
+set expandtab
+set tabstop=4
+set shiftwidth=4
+set softtabstop=4
+set number
+set ruler
+set showcmd
+set wildmenu
+set incsearch
+set hlsearch
+set ignorecase
+set smartcase
+set wrap
+set linebreak
+set showmatch
+
+" --- digraphs (Type Folio has no { } [ ]) ---
+" <C-k> {B = {    <C-k> }B = }    <C-k> [C = [    <C-k> ]C = ]
+" Also: <C-k> <: = <=   <C-k> :> = >=   <C-k> != = ≠
+set digraph
+
+" --- no swap files cluttering ---
+set noswapfile
+set nobackup
+set nowritebackup
+
+" --- persistent undo across sessions ---
+set undofile
+set undodir=~/.vim/undodir
+silent! execute '!mkdir -p ~/.vim/undodir'
+
+" --- make j/k move by screen lines when wrapped ---
+nnoremap j gj
+nnoremap k gk
+
+" --- easy save/quit (no Esc needed sometimes) ---
+" Ctrl+S to save (if terminal supports it)
+noremap <C-S> :w<CR>
+
+" --- colors: light background for e-ink ---
+set background=light
+colorscheme default
+
+" --- faster escape in insert mode (right-alt sends Esc already) ---
+set timeoutlen=300 ttimeoutlen=50
