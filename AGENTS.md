@@ -225,6 +225,52 @@ layer (Canvas, Button, Text, EventLoop) on top of rmfb/rminput, and a
 `tum` recipe that builds Go apps natively (no Docker needed for pure-Go
 logic, only cgo for the fb/input bindings).
 
+## Cross-compilation reference
+
+The reMarkable 2 is an **ARMv7-A** (armv7l, Cortex-A7, hard-float, NEON) device
+running **glibc 2.39** on kernel 5.4.70. There are **no on-device compilers**
+(no gcc, no make, no ld, no headers, no crt objects) — everything must be
+cross-compiled or shipped as a pre-built binary.
+
+Run `tum target` for the live specs. Key flags:
+
+| What         | Flags                                                              |
+|--------------|--------------------------------------------------------------------|
+| Go (pure)    | `GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build`            |
+| Go (cgo)     | `GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=1 CC=arm-linux-gnueabihf-gcc` |
+| C/C++ gcc    | `arm-linux-gnueabihf-gcc -march=armv7-a -mfpu=neon -mfloat-abi=hard` |
+| Linker interp| `/lib/ld-linux-armhf.so.3`                                          |
+| Runtime deps | `libc.so.6` (glibc 2.39), `libstdc++.so.6`, `libudev.so.1`          |
+
+### Docker images
+
+- `rm2stuff-cross-armhf` — C/C++ apps (yaft). Has `arm-linux-gnueabihf-gcc`,
+  git-lfs, and the full cross-toolchain with crt objects + glibc headers.
+- `tum-go-armhf` — Go cgo apps (flower). Has Go + the cross-compiler.
+- `tum-emulate` — host SDL emulation for testing without a device.
+
+### On-device C compilation (tcc)
+
+`tcc` (TinyCC) is installed on the device at `/usr/local/bin/tcc` with
+crt objects, libtcc1.a, and glibc headers. You can compile and run C
+programs directly on the reMarkable:
+
+```sh
+tcc hello.c -o hello && ./hello
+tcc -run hello.c          # compile and run in one step
+```
+
+**Critical build detail**: tcc must be built with `--triplet=arm-linux-gnueabihf`
+so that `TCC_ARM_EABI` is defined. Without it, the ARM stack-alignment fixup
+in `gfunc_epilog` is skipped, and calls to glibc functions that use LDRD/STRD
+(puts, printf, fputs, fputc — anything touching stdio streams) crash with
+SIGBUS (exit code 135). Direct function calls and syscall wrappers (write,
+strlen, getpid, rand) work even without the fixup, which makes it hard to spot.
+
+The device has no `libc.so` symlink (only `libc.so.6`) and no
+`ld-linux.so.3` (only `ld-linux-armhf.so.3`). The tcc install creates these
+symlinks. Use `-L/lib` if tcc can't find libc.
+
 ## Conventions
 
 - Go code: gofmt + `go vet ./...` clean before committing.

@@ -1,0 +1,86 @@
+# tcc recipe for tum
+# TinyCC (Tiny C Compiler) — compile and run C programs directly on the reMarkable.
+#
+# Build: cross-compile the native ARM tcc binary + libtcc1.a using the
+# Docker cross image, then bundle with glibc crt objects + headers.
+
+[app]
+name = "tcc"
+version = "0.1.0"
+description = "Tiny C Compiler — compile C on-device"
+build_dir = "{{.TumRoot}}/apps/tinycc"
+
+[build]
+# Build in the C++ cross Docker image (has arm-linux-gnueabihf-gcc)
+docker_image = "rm2stuff-cross-armhf"
+steps = """
+# Configure as native ARM compiler (arm host + arm target).
+# CRITICAL: --triplet=arm-linux-gnueabihf enables TCC_ARM_EABI so the
+# ARM stack-alignment fixup runs (without it, PLT calls to glibc functions
+# that use LDRD/STRD crash with SIGBUS).
+./configure \\
+  --cpu=arm \\
+  --targetos=Linux \\
+  --cross-prefix=arm-linux-gnueabihf- \\
+  --triplet=arm-linux-gnueabihf
+
+make -j$(nproc) arm-tcc
+make arm-libtcc1.a
+"""
+
+[build.outputs]
+binary = "arm-tcc"
+
+[install]
+# Install tcc binary + runtime (crt objects, libtcc1.a, headers)
+steps = """
+# Binary
+cp arm-tcc /usr/local/bin/tcc
+chmod +x /usr/local/bin/tcc
+
+# libtcc1.a
+mkdir -p /usr/local/lib/tcc
+cp arm-libtcc1.a /usr/local/lib/tcc/libtcc1.a
+
+# crt objects (from cross-toolchain, ABI-compatible with glibc 2.39)
+mkdir -p /usr/lib/arm-linux-gnueabihf
+cp /usr/arm-linux-gnueabihf/lib/crt1.o /usr/lib/arm-linux-gnueabihf/
+cp /usr/arm-linux-gnueabihf/lib/crti.o /usr/lib/arm-linux-gnueabihf/
+cp /usr/arm-linux-gnueabihf/lib/crtn.o /usr/lib/arm-linux-gnueabihf/
+
+# libc.so symlink (device only has libc.so.6)
+ln -sf /lib/libc.so.6 /lib/libc.so
+
+# Dynamic linker symlink (device has ld-linux-armhf.so.3, tcc expects ld-linux.so.3)
+ln -sf /lib/ld-linux-armhf.so.3 /lib/ld-linux.so.3
+
+# tcc's own headers (stddef.h, stdarg.h, etc.)
+cp include/stddef.h include/stdarg.h include/stdbool.h include/float.h \\
+   include/stdalign.h include/stdatomic.h include/stdnoreturn.h \\
+   include/tgmath.h include/varargs.h include/tccdefs.h \\
+   /usr/local/lib/tcc/include/ 2>/dev/null || true
+
+# glibc headers from cross-toolchain (device has none)
+cp -a /usr/arm-linux-gnueabihf/include/* /usr/local/lib/tcc/include/ 2>/dev/null || true
+
+# Fix: glibc stubs.h includes stubs-soft.h which doesn't exist on hard-float
+echo '/* empty stubs-soft.h for tcc (hard-float device) */' > \\
+  /usr/local/lib/tcc/include/gnu/stubs-soft.h
+"""
+
+[install.bin]
+path = "/usr/local/bin/tcc"
+
+[notes]
+usage = """
+# Compile and run C on the reMarkable:
+echo 'int main(){puts("hello!");return 0;}' > hello.c
+tcc hello.c -o hello
+./hello
+
+# Run directly (no binary):
+tcc -run hello.c
+
+# With includes:
+tcc -L/lib program.c -o program
+"""
